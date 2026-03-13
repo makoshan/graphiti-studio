@@ -66,6 +66,77 @@
                 </span>
               </div>
             </div>
+
+            <div class="detail-section" v-if="selectedNodeEvidence.entries.length > 0">
+              <div class="section-title">Evidence Episodes</div>
+              <div class="episodes-list">
+                <button
+                  v-for="entry in selectedNodeEvidence.entries"
+                  :key="entry.uuid"
+                  type="button"
+                  class="episode-tag"
+                  :class="{ active: selectedEpisodeUuid === entry.uuid }"
+                  @click.stop="loadEpisodeDetail(entry.uuid)"
+                >
+                  {{ entry.uuid }}
+                </button>
+              </div>
+              <div class="evidence-hints">
+                <div
+                  v-for="entry in selectedNodeEvidence.entries"
+                  :key="`${entry.uuid}-meta`"
+                  class="evidence-hint"
+                >
+                  <span class="evidence-hint-id">{{ entry.uuid }}</span>
+                  <span class="evidence-hint-meta">
+                    {{ entry.count }} linked facts
+                    <template v-if="entry.edgeLabels.length">
+                      · {{ entry.edgeLabels.join(', ') }}
+                    </template>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div class="detail-section" v-if="selectedNodeEvidence.facts.length > 0">
+              <div class="section-title">Connected Facts</div>
+              <div class="connected-facts">
+                <div v-for="fact in selectedNodeEvidence.facts" :key="fact.key" class="connected-fact-item">
+                  <div class="connected-fact-relation">
+                    {{ fact.source }} → {{ fact.label }} → {{ fact.target }}
+                  </div>
+                  <div class="connected-fact-text">{{ fact.fact }}</div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="episodeLoading || episodeError || episodeDetail" class="detail-section">
+              <div class="section-title">Episode Evidence</div>
+              <div v-if="episodeLoading" class="episode-loading">Loading episode details...</div>
+              <div v-else-if="episodeError" class="episode-error">{{ episodeError }}</div>
+              <template v-else-if="episodeDetail">
+                <div class="detail-row">
+                  <span class="detail-label">Episode:</span>
+                  <span class="detail-value uuid-text">{{ episodeDetail.episode.uuid }}</span>
+                </div>
+                <div class="detail-row" v-if="episodeDetail.episode.source_description">
+                  <span class="detail-label">Source:</span>
+                  <span class="detail-value">{{ episodeDetail.episode.source_description }}</span>
+                </div>
+                <div class="detail-row" v-if="episodeDetail.raw_memory">
+                  <span class="detail-label">Raw Memory:</span>
+                  <span class="detail-value uuid-text">{{ episodeDetail.raw_memory.id }}</span>
+                </div>
+                <div class="detail-row" v-if="episodeDetail.episode.created_at">
+                  <span class="detail-label">Captured:</span>
+                  <span class="detail-value">{{ formatDateTime(episodeDetail.episode.created_at) }}</span>
+                </div>
+                <div class="episode-source-label">
+                  {{ episodeDetail.raw_memory ? 'Original Text Chunk' : 'Episode Content' }}
+                </div>
+                <pre class="episode-content">{{ episodeEvidenceContent }}</pre>
+              </template>
+            </div>
           </div>
 
           <!-- Edge details -->
@@ -113,7 +184,16 @@
                     <div v-if="loop.episodes && loop.episodes.length > 0" class="self-loop-episodes">
                       <span class="detail-label">Episodes:</span>
                       <div class="episodes-list compact">
-                        <span v-for="ep in loop.episodes" :key="ep" class="episode-tag small">{{ ep }}</span>
+                        <button
+                          v-for="ep in loop.episodes"
+                          :key="ep"
+                          type="button"
+                          class="episode-tag small"
+                          :class="{ active: selectedEpisodeUuid === ep }"
+                          @click.stop="loadEpisodeDetail(ep)"
+                        >
+                          {{ ep }}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -148,9 +228,16 @@
               <div class="detail-section" v-if="selectedItem.data.episodes && selectedItem.data.episodes.length > 0">
                 <div class="section-title">Episodes:</div>
                 <div class="episodes-list">
-                  <span v-for="ep in selectedItem.data.episodes" :key="ep" class="episode-tag">
+                  <button
+                    v-for="ep in selectedItem.data.episodes"
+                    :key="ep"
+                    type="button"
+                    class="episode-tag"
+                    :class="{ active: selectedEpisodeUuid === ep }"
+                    @click.stop="loadEpisodeDetail(ep)"
+                  >
                     {{ ep }}
-                  </span>
+                  </button>
                 </div>
               </div>
 
@@ -163,6 +250,34 @@
                 <span class="detail-value">{{ formatDateTime(selectedItem.data.valid_at) }}</span>
               </div>
             </template>
+
+            <div v-if="episodeLoading || episodeError || episodeDetail" class="detail-section">
+              <div class="section-title">Episode Evidence</div>
+              <div v-if="episodeLoading" class="episode-loading">Loading episode details...</div>
+              <div v-else-if="episodeError" class="episode-error">{{ episodeError }}</div>
+              <template v-else-if="episodeDetail">
+                <div class="detail-row">
+                  <span class="detail-label">Episode:</span>
+                  <span class="detail-value uuid-text">{{ episodeDetail.episode.uuid }}</span>
+                </div>
+                <div class="detail-row" v-if="episodeDetail.episode.source_description">
+                  <span class="detail-label">Source:</span>
+                  <span class="detail-value">{{ episodeDetail.episode.source_description }}</span>
+                </div>
+                <div class="detail-row" v-if="episodeDetail.raw_memory">
+                  <span class="detail-label">Raw Memory:</span>
+                  <span class="detail-value uuid-text">{{ episodeDetail.raw_memory.id }}</span>
+                </div>
+                <div class="detail-row" v-if="episodeDetail.episode.created_at">
+                  <span class="detail-label">Captured:</span>
+                  <span class="detail-value">{{ formatDateTime(episodeDetail.episode.created_at) }}</span>
+                </div>
+                <div class="episode-source-label">
+                  {{ episodeDetail.raw_memory ? 'Original Text Chunk' : 'Episode Content' }}
+                </div>
+                <pre class="episode-content">{{ episodeEvidenceContent }}</pre>
+              </template>
+            </div>
           </div>
         </div>
       </div>
@@ -205,8 +320,13 @@
 <script setup>
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import * as d3 from 'd3'
+import api from '../api'
 
 const props = defineProps({
+  projectId: {
+    type: String,
+    default: ''
+  },
   graphData: Object,
   loading: Boolean,
   highlightNodes: {
@@ -224,6 +344,10 @@ const emit = defineEmits(['refresh'])
 const graphContainer = ref(null)
 const graphSvg = ref(null)
 const selectedItem = ref(null)
+const selectedEpisodeUuid = ref('')
+const episodeDetail = ref(null)
+const episodeLoading = ref(false)
+const episodeError = ref('')
 const showEdgeLabels = ref(true)
 const expandedSelfLoops = ref(new Set())
 
@@ -289,8 +413,106 @@ const formatDateTime = (dateStr) => {
   }
 }
 
+const resetEpisodeDetail = () => {
+  selectedEpisodeUuid.value = ''
+  episodeDetail.value = null
+  episodeLoading.value = false
+  episodeError.value = ''
+}
+
+const openNodeDetail = (payload) => {
+  resetEpisodeDetail()
+  selectedItem.value = payload
+}
+
+const openEdgeDetail = (edgeData) => {
+  resetEpisodeDetail()
+  selectedItem.value = {
+    type: 'edge',
+    data: edgeData
+  }
+}
+
+const loadEpisodeDetail = async (episodeUuid) => {
+  if (!props.projectId || !episodeUuid) return
+
+  selectedEpisodeUuid.value = episodeUuid
+  episodeLoading.value = true
+  episodeError.value = ''
+
+  try {
+    const response = await api.get(`/api/projects/${props.projectId}/episodes/${episodeUuid}`)
+    if (selectedEpisodeUuid.value !== episodeUuid) return
+    episodeDetail.value = response.data || response
+  } catch (error) {
+    if (selectedEpisodeUuid.value !== episodeUuid) return
+    episodeDetail.value = null
+    episodeError.value = 'Failed to load episode details.'
+    console.error('Failed to load episode detail:', error)
+  } finally {
+    if (selectedEpisodeUuid.value === episodeUuid) {
+      episodeLoading.value = false
+    }
+  }
+}
+
+const episodeEvidenceContent = computed(() => {
+  if (episodeDetail.value?.raw_memory?.content) return episodeDetail.value.raw_memory.content
+  return episodeDetail.value?.episode?.content || ''
+})
+
+const selectedNodeEvidence = computed(() => {
+  if (selectedItem.value?.type !== 'node' || !props.graphData?.edges) {
+    return { entries: [], facts: [] }
+  }
+
+  const nodeUuid = getNodeUuid(selectedItem.value.data)
+  if (!nodeUuid) return { entries: [], facts: [] }
+
+  const episodeMap = new Map()
+  const facts = []
+
+  for (const edge of props.graphData.edges || []) {
+    const sourceUuid = edge.source_node_uuid || edge.sourceNodeUuid || ''
+    const targetUuid = edge.target_node_uuid || edge.targetNodeUuid || ''
+    if (sourceUuid !== nodeUuid && targetUuid !== nodeUuid) continue
+
+    const edgeLabel = edge.name || edge.fact_type || 'RELATED'
+    facts.push({
+      key: `${getEdgeUuid(edge)}:${nodeUuid}`,
+      source: edge.source_node_name || edge.source_name || sourceUuid.slice(0, 8),
+      target: edge.target_node_name || edge.target_name || targetUuid.slice(0, 8),
+      label: edgeLabel,
+      fact: edge.fact || edgeLabel
+    })
+
+    for (const episodeUuid of edge.episodes || []) {
+      const current = episodeMap.get(episodeUuid) || {
+        uuid: episodeUuid,
+        count: 0,
+        edgeLabels: new Set()
+      }
+      current.count += 1
+      current.edgeLabels.add(edgeLabel)
+      episodeMap.set(episodeUuid, current)
+    }
+  }
+
+  return {
+    entries: Array.from(episodeMap.values())
+      .map(entry => ({
+        uuid: entry.uuid,
+        count: entry.count,
+        edgeLabels: Array.from(entry.edgeLabels)
+      }))
+      .sort((a, b) => b.count - a.count || a.uuid.localeCompare(b.uuid)),
+    facts
+  }
+})
+
 const closeDetailPanel = () => {
   selectedItem.value = null
+  resetEpisodeDetail()
   expandedSelfLoops.value = new Set()
 }
 
@@ -577,11 +799,7 @@ const renderGraph = () => {
       linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
       linkLabels.attr('fill', '#666')
       d3.select(event.target).attr('stroke', '#3498db').attr('stroke-width', 3)
-
-      selectedItem.value = {
-        type: 'edge',
-        data: d.rawData
-      }
+      openEdgeDetail(d.rawData)
     })
 
   // Link label backgrounds
@@ -601,11 +819,7 @@ const renderGraph = () => {
       linkLabels.attr('fill', '#666')
       link.filter(l => l === d).attr('stroke', '#3498db').attr('stroke-width', 3)
       d3.select(event.target).attr('fill', 'rgba(52, 152, 219, 0.1)')
-
-      selectedItem.value = {
-        type: 'edge',
-        data: d.rawData
-      }
+      openEdgeDetail(d.rawData)
     })
 
   // Link labels
@@ -690,13 +904,12 @@ const renderGraph = () => {
       link.filter(l => l.source.id === d.id || l.target.id === d.id)
         .attr('stroke', '#E91E63')
         .attr('stroke-width', 2.5)
-
-      selectedItem.value = {
+      openNodeDetail({
         type: 'node',
         data: d.rawData,
         entityType: d.type,
         color: getColor(d.type)
-      }
+      })
     })
     .on('mouseenter', (event, d) => {
       if (!selectedItem.value || selectedItem.value.data?.uuid !== d.id) {
@@ -770,6 +983,7 @@ const renderGraph = () => {
   // Click blank area to close detail panel
   svg.on('click', () => {
     selectedItem.value = null
+    resetEpisodeDetail()
     node.attr('stroke', '#fff').attr('stroke-width', 2.5).attr('filter', null).attr('r', 10)
     linkGroup.selectAll('path').attr('stroke', '#C0C0C0').attr('stroke-width', 1.5)
     linkLabelBg.attr('fill', 'rgba(255,255,255,0.95)')
@@ -1327,6 +1541,21 @@ input:checked + .slider:before {
   font-size: 10px;
   color: #666;
   word-break: break-all;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.episode-tag:hover {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.episode-tag.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
 }
 
 /* Edge relation header */
@@ -1467,5 +1696,98 @@ input:checked + .slider:before {
 .episode-tag.small {
   padding: 3px 6px;
   font-size: 9px;
+}
+
+.episode-loading,
+.episode-error {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.episode-loading {
+  color: #64748b;
+}
+
+.episode-error {
+  color: #dc2626;
+}
+
+.episode-source-label {
+  margin-top: 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.episode-content {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  color: #1f2937;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.evidence-hints {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evidence-hint {
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.evidence-hint-id {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #475569;
+}
+
+.evidence-hint-meta {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #64748b;
+}
+
+.connected-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connected-fact-item {
+  padding: 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.connected-fact-relation {
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 4px;
+}
+
+.connected-fact-text {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #475569;
 }
 </style>

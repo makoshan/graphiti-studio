@@ -207,26 +207,32 @@ const threads = ref([])
 
 // --- Thread management ---
 
-const fetchThreads = async () => {
+const fetchThreads = async ({ autoselect = false } = {}) => {
   try {
     const res = await api.get(`/api/projects/${props.projectId}/threads`)
     threads.value = res.data || res || []
+    if (
+      autoselect &&
+      !chat.streaming.value &&
+      !chat.currentThreadId.value &&
+      threads.value.length > 0
+    ) {
+      await chat.loadThread(threads.value[0].id)
+    }
   } catch (error) {
     console.error('Failed to fetch threads:', error)
   }
 }
 
 const switchThread = async (thread) => {
-  chat.clearMessages()
-  chat.currentThreadId.value = thread.id
+  await chat.loadThread(thread.id)
   showThreads.value = false
-  // Reload messages for this thread by sending an empty fetch
-  // The next send() will use this thread_id
 }
 
 const startNewChat = () => {
   chat.clearMessages()
   showThreads.value = false
+  emit('references-updated', { nodes: [], edges: [] })
   fetchThreads()
 }
 
@@ -236,6 +242,7 @@ const deleteThread = async (threadId) => {
     threads.value = threads.value.filter(t => t.id !== threadId)
     if (chat.currentThreadId.value === threadId) {
       chat.clearMessages()
+      emit('references-updated', { nodes: [], edges: [] })
     }
   } catch (error) {
     console.error('Failed to delete thread:', error)
@@ -362,15 +369,18 @@ watch(() => chat.streaming.value, (streaming) => {
 
 // Emit references to parent when they change (for auto-highlight in GraphPanel)
 watch(() => chat.currentReferences.value, (refs) => {
-  if (refs && (refs.nodes?.length || refs.edges?.length)) {
-    // Extract UUID strings from enriched objects
-    const nodeUuids = (refs.nodes || []).map(n => typeof n === 'string' ? n : n.uuid)
-    const edgeUuids = (refs.edges || []).map(e => typeof e === 'string' ? e : e.uuid)
-    emit('references-updated', { nodes: nodeUuids, edges: edgeUuids })
-  }
+  const nodeUuids = (refs?.nodes || []).map(n => typeof n === 'string' ? n : n.uuid).filter(Boolean)
+  const edgeUuids = (refs?.edges || []).map(e => typeof e === 'string' ? e : e.uuid).filter(Boolean)
+  emit('references-updated', { nodes: nodeUuids, edges: edgeUuids })
 }, { deep: true })
 
 onMounted(() => {
-  fetchThreads()
+  fetchThreads({ autoselect: true })
+})
+
+watch(projectIdRef, () => {
+  chat.clearMessages()
+  showThreads.value = false
+  fetchThreads({ autoselect: true })
 })
 </script>

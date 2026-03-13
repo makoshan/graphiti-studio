@@ -28,8 +28,66 @@
       <!-- LLM Configuration -->
       <section class="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-100">
-          <h2 class="text-base font-semibold text-gray-900">LLM Configuration</h2>
-          <p class="text-sm text-gray-500 mt-1">Configure the language model used for chat and analysis.</p>
+          <h2 class="text-base font-semibold text-gray-900">Agent Runtime</h2>
+          <p class="text-sm text-gray-500 mt-1">Choose whether chat uses the built-in OpenAI-compatible runtime or pi-coding-agent RPC.</p>
+        </div>
+        <div class="px-6 py-5 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Runtime</label>
+            <select
+              v-model="settings.agent_runtime"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option :value="'builtin'">Built-in PiAgent</option>
+              <option :value="'pi-rpc'">pi-coding-agent RPC</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="settings.agent_runtime === 'pi-rpc'"
+        class="bg-white rounded-xl border border-gray-200 overflow-hidden"
+      >
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h2 class="text-base font-semibold text-gray-900">pi-coding-agent</h2>
+          <p class="text-sm text-gray-500 mt-1">Use pi-mono as the agent runtime. This is required for Kimi Coding.</p>
+        </div>
+        <div class="px-6 py-5 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+            <input
+              v-model="settings.pi_provider"
+              type="text"
+              placeholder="kimi-coding"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Model</label>
+            <input
+              v-model="settings.pi_model"
+              type="text"
+              placeholder="k2p5"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Provider API Key</label>
+            <input
+              v-model="settings.pi_api_key"
+              type="password"
+              placeholder="sk-kimi-..."
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-100">
+          <h2 class="text-base font-semibold text-gray-900">Built-in LLM Runtime</h2>
+          <p class="text-sm text-gray-500 mt-1">Used only when the runtime above is set to Built-in PiAgent.</p>
         </div>
         <div class="px-6 py-5 space-y-4">
           <div>
@@ -100,6 +158,19 @@
               {{ testResult.message }}
             </p>
           </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Node Summary Language</label>
+            <select
+              v-model="settings.graphiti_summary_language"
+              class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            >
+              <option :value="'original'">Original / Follow source language</option>
+              <option :value="'zh-CN'">Simplified Chinese</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-2">
+              Controls newly extracted node summaries only. Edge facts stay in their original style.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -151,11 +222,16 @@ import { ref, onMounted } from 'vue'
 import api from '../api'
 
 const settings = ref({
+  agent_runtime: 'builtin',
+  pi_provider: 'kimi-coding',
+  pi_model: 'k2p5',
+  pi_api_key: '',
   llm_api_key: '',
   llm_base_url: '',
   llm_model: '',
   graphiti_base_url: 'http://127.0.0.1:8000',
   graphiti_api_key: 'local-graphiti',
+  graphiti_summary_language: 'original',
   default_chunk_size: 1000,
   default_chunk_overlap: 200
 })

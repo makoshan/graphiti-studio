@@ -28,6 +28,7 @@ from ..db import get_db
 from ..services.graphiti_client import get_graphiti_client
 from ..services.memory_adapter import get_memory_adapter
 from ..services.pi_agent import PiAgent
+from ..services.pi_rpc_agent import PiRpcAgent
 from ..config import Config
 
 MAX_ENRICHED_REFS = 10  # cap per category to avoid slow lookups
@@ -127,20 +128,16 @@ async def _load_messages(thread_id: str) -> list[dict]:
     """Load conversation history for the given thread."""
     db = get_db()
     rows = await db.fetchall(
-        "SELECT role, content, tool_calls FROM messages "
-        "WHERE thread_id = ? ORDER BY created_at ASC",
+        "SELECT role, content FROM messages "
+        "WHERE thread_id = ? "
+        "AND NOT (role = 'assistant' AND TRIM(COALESCE(content, '')) = '') "
+        "ORDER BY created_at ASC",
         (thread_id,),
     )
     messages: list[dict] = []
     for r in rows:
         d = dict(r)
-        msg: dict[str, Any] = {"role": d["role"], "content": d["content"] or ""}
-        if d.get("tool_calls"):
-            try:
-                msg["tool_calls"] = json.loads(d["tool_calls"])
-            except (json.JSONDecodeError, TypeError):
-                pass
-        messages.append(msg)
+        messages.append({"role": d["role"], "content": d["content"] or ""})
     return messages
 
 
@@ -275,6 +272,19 @@ def _build_pi_agent(project_id: str) -> PiAgent:
     return agent
 
 
+def _build_agent(project_id: str, thread_id: str):
+    """Create the configured chat agent runtime for this request."""
+    if Config.AGENT_RUNTIME == "pi-rpc":
+        return PiRpcAgent(
+            project_id=project_id,
+            thread_id=thread_id,
+            provider=Config.PI_PROVIDER,
+            model=Config.PI_MODEL,
+            api_key=Config.PI_API_KEY,
+        )
+    return _build_pi_agent(project_id)
+
+
 # ---------------------------------------------------------------------------
 # SSE Chat endpoint
 # ---------------------------------------------------------------------------
@@ -319,7 +329,7 @@ async def chat(project_id: str, body: ChatRequest):
     history.append({"role": "user", "content": body.message})
 
     # Build agent with memory tools bound to this project.
-    agent = _build_pi_agent(project_id)
+    agent = _build_agent(project_id, thread_id)
 
     # Determine system prompt: use thread override if present, else default.
     system_prompt = thread.get("system_prompt") or DEFAULT_SYSTEM_PROMPT
@@ -330,6 +340,8 @@ async def chat(project_id: str, body: ChatRequest):
         final_content = ""
         final_references: dict[str, list[str]] = {"nodes": [], "edges": []}
         tool_calls_log: list[dict] = []
+        stream_completed = False
+        stream_failed = False
 
         try:
             async for event in agent.chat(history, system_prompt=system_prompt):
@@ -341,6 +353,7 @@ async def chat(project_id: str, body: ChatRequest):
 
                 # Intercept `end` event: enrich references before sending.
                 if event_type == "end":
+                    stream_completed = True
                     final_content = event_data.get("content", "")
                     raw_refs = event_data.get("references", final_references)
 
@@ -364,6 +377,9 @@ async def chat(project_id: str, body: ChatRequest):
                     }
                     continue
 
+                if event_type == "error":
+                    stream_failed = True
+
                 yield {
                     "event": event_type,
                     "data": json.dumps(event_data, ensure_ascii=False, default=str),
@@ -378,14 +394,21 @@ async def chat(project_id: str, body: ChatRequest):
             return
 
         # Persist assistant message after streaming completes.
+        should_persist_assistant = stream_completed and not stream_failed and (
+            bool(final_content.strip())
+            or any(final_references.values())
+            or bool(tool_calls_log)
+        )
+
         try:
-            await _save_message(
-                thread_id=thread_id,
-                role="assistant",
-                content=final_content,
-                tool_calls=tool_calls_log if tool_calls_log else None,
-                references=final_references if any(final_references.values()) else None,
-            )
+            if should_persist_assistant:
+                await _save_message(
+                    thread_id=thread_id,
+                    role="assistant",
+                    content=final_content,
+                    tool_calls=tool_calls_log if tool_calls_log else None,
+                    references=final_references if any(final_references.values()) else None,
+                )
 
             # Auto-title the thread from the first user message if it is untitled.
             if not thread.get("title"):
@@ -422,7 +445,14 @@ async def list_threads(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
 
     rows = await db.fetchall(
-        "SELECT * FROM threads WHERE project_id = ? ORDER BY created_at DESC",
+        """
+        SELECT t.*
+        FROM threads AS t
+        LEFT JOIN messages AS m ON m.thread_id = t.id
+        WHERE t.project_id = ?
+        GROUP BY t.id
+        ORDER BY COALESCE(MAX(m.created_at), t.created_at) DESC
+        """,
         (project_id,),
     )
     return [
@@ -435,6 +465,33 @@ async def list_threads(project_id: str):
         )
         for r in rows
     ]
+
+
+@router.get(
+    "/projects/{project_id}/threads/{thread_id}/messages",
+    response_model=list[MessageResponse],
+)
+async def list_thread_messages(project_id: str, thread_id: str):
+    """Return persisted messages for a thread in chronological order."""
+    db = get_db()
+    thread = await db.fetchone(
+        "SELECT id FROM threads WHERE id = ? AND project_id = ?",
+        (thread_id, project_id),
+    )
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+    rows = await db.fetchall(
+        """
+        SELECT id, thread_id, role, content, tool_calls, "references", created_at
+        FROM messages
+        WHERE thread_id = ?
+          AND NOT (role = 'assistant' AND TRIM(COALESCE(content, '')) = '')
+        ORDER BY id ASC
+        """,
+        (thread_id,),
+    )
+    return [MessageResponse(**_row_to_dict(row)) for row in rows]
 
 
 @router.post(

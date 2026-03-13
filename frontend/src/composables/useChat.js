@@ -1,4 +1,5 @@
 import { ref, unref } from 'vue'
+import api from '../api'
 
 export function useChat(projectId) {
   const messages = ref([])
@@ -6,6 +7,23 @@ export function useChat(projectId) {
   const currentReferences = ref({ nodes: [], edges: [] })
   const currentThreadId = ref(null)
   const toolStatus = ref(null)
+
+  function normalizeMessage(message) {
+    return {
+      role: message.role,
+      content: message.content || '',
+      timestamp: message.created_at || message.timestamp || new Date().toISOString(),
+      tool_calls: message.tool_calls || null,
+      references: message.references || { nodes: [], edges: [] }
+    }
+  }
+
+  function syncCurrentReferencesFromMessages() {
+    const lastAssistantWithRefs = [...messages.value]
+      .reverse()
+      .find(msg => msg.role === 'assistant' && msg.references && ((msg.references.nodes || []).length || (msg.references.edges || []).length))
+    currentReferences.value = lastAssistantWithRefs?.references || { nodes: [], edges: [] }
+  }
 
   async function send(text) {
     if (!text.trim() || streaming.value) return
@@ -142,6 +160,20 @@ export function useChat(projectId) {
     currentReferences.value = { nodes: [], edges: [] }
   }
 
+  async function loadThread(threadId) {
+    if (!threadId) {
+      clearMessages()
+      return
+    }
+
+    const pid = unref(projectId)
+    const response = await api.get(`/api/projects/${pid}/threads/${threadId}/messages`)
+    const loaded = response.data || response || []
+    currentThreadId.value = threadId
+    messages.value = loaded.map(normalizeMessage)
+    syncCurrentReferencesFromMessages()
+  }
+
   return {
     messages,
     streaming,
@@ -149,6 +181,7 @@ export function useChat(projectId) {
     currentThreadId,
     toolStatus,
     send,
-    clearMessages
+    clearMessages,
+    loadThread
   }
 }

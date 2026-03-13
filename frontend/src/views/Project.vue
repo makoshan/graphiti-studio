@@ -159,6 +159,7 @@
           class="h-full"
         >
           <GraphPanel
+            :projectId="projectId"
             :graphData="graphData"
             :loading="graphLoading"
             :highlightNodes="highlightNodes"

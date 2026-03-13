@@ -19,6 +19,8 @@ from ..config import Config
 class EpisodeData:
     data: str
     type: str = "text"
+    source_description: str = ""
+    summary_language: str = "original"
 
 
 @dataclass
@@ -170,12 +172,31 @@ class _GraphOps:
             )
 
     async def add_batch(self, graph_id: str, episodes: list[EpisodeData]):
-        payload = [{"content": ep.data, "type": ep.type} for ep in episodes]
+        payload = [
+            {
+                "content": ep.data,
+                "type": ep.type,
+                "source_description": ep.source_description or None,
+            }
+            for ep in episodes
+        ]
+        summary_language = next(
+            (
+                ep.summary_language
+                for ep in episodes
+                if getattr(ep, "summary_language", "") and ep.summary_language != "original"
+            ),
+            "original",
+        )
+        headers: dict[str, str] = {}
+        if summary_language != "original":
+            headers["X-Graphiti-Summary-Language"] = summary_language
         data = (
             await self._http.request(
                 "POST",
                 f"/v1/groups/{graph_id}/episodes:batch",
                 json={"episodes": payload},
+                headers=headers or None,
             )
             or []
         )

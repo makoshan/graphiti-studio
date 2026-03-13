@@ -33,22 +33,32 @@ router = APIRouter()
 
 
 class SettingsResponse(BaseModel):
+    agent_runtime: str
+    pi_provider: str
+    pi_model: str
+    pi_api_key: str
     llm_api_key: str
     llm_base_url: str
     llm_model: str
     graphiti_base_url: str
     graphiti_api_key: str
+    graphiti_summary_language: str
     default_chunk_size: int
     default_chunk_overlap: int
     theme: str
 
 
 class SettingsUpdate(BaseModel):
+    agent_runtime: Optional[str] = Field(None, pattern="^(builtin|pi-rpc)$")
+    pi_provider: Optional[str] = Field(None, pattern="^[a-z0-9-]+$")
+    pi_model: Optional[str] = None
+    pi_api_key: Optional[str] = None
     llm_api_key: Optional[str] = None
     llm_base_url: Optional[str] = None
     llm_model: Optional[str] = None
     graphiti_base_url: Optional[str] = None
     graphiti_api_key: Optional[str] = None
+    graphiti_summary_language: Optional[str] = Field(None, pattern="^(original|zh-CN)$")
     default_chunk_size: Optional[int] = Field(None, ge=100, le=10000)
     default_chunk_overlap: Optional[int] = Field(None, ge=0, le=5000)
     theme: Optional[str] = None
@@ -58,7 +68,7 @@ class SettingsUpdate(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-_MASKED_FIELDS = ("llm_api_key", "graphiti_api_key")
+_MASKED_FIELDS = ("pi_api_key", "llm_api_key", "graphiti_api_key")
 
 
 def _mask_key(value: str) -> str:
@@ -74,6 +84,16 @@ def _mask_key(value: str) -> str:
     return "*" * (len(value) - 4) + value[-4:]
 
 
+def _is_masked_key(value: str) -> bool:
+    """Return True when a submitted key looks like a masked placeholder."""
+    if not value:
+        return False
+    star_count = value.count("*")
+    if star_count < 4:
+        return False
+    return value.startswith("*") and any(ch != "*" for ch in value)
+
+
 def _row_to_response(row, *, mask: bool = True) -> SettingsResponse:
     """Convert an aiosqlite Row to a SettingsResponse, optionally masking
     API key fields."""
@@ -82,11 +102,16 @@ def _row_to_response(row, *, mask: bool = True) -> SettingsResponse:
         for field in _MASKED_FIELDS:
             d[field] = _mask_key(d.get(field, "") or "")
     return SettingsResponse(
+        agent_runtime=d.get("agent_runtime", "builtin"),
+        pi_provider=d.get("pi_provider", "kimi-coding"),
+        pi_model=d.get("pi_model", "k2p5"),
+        pi_api_key=d.get("pi_api_key", ""),
         llm_api_key=d.get("llm_api_key", ""),
         llm_base_url=d.get("llm_base_url", ""),
         llm_model=d.get("llm_model", ""),
         graphiti_base_url=d.get("graphiti_base_url", ""),
         graphiti_api_key=d.get("graphiti_api_key", ""),
+        graphiti_summary_language=d.get("graphiti_summary_language", "original"),
         default_chunk_size=d.get("default_chunk_size", 1000),
         default_chunk_overlap=d.get("default_chunk_overlap", 100),
         theme=d.get("theme", "system"),
@@ -127,6 +152,10 @@ async def update_settings(body: SettingsUpdate):
 
     # Build a dynamic UPDATE statement from only the supplied fields.
     supplied = body.model_dump(exclude_none=True)
+    for field in _MASKED_FIELDS:
+        value = supplied.get(field)
+        if isinstance(value, str) and _is_masked_key(value):
+            supplied.pop(field, None)
     if not supplied:
         # Nothing to update — return current settings.
         row = await db.fetchone("SELECT * FROM settings WHERE id = 1")
