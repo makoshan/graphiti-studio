@@ -24,6 +24,12 @@ class FakeGraphRecord:
     source_node_uuid: str | None = None
     target_node_uuid: str | None = None
     score: float = 0.0
+    group_id: str | None = None
+    content: str | None = None
+    source: str | None = None
+    source_description: str | None = None
+    processed: bool = True
+    episodes: list[str] | None = None
 
 
 class _FakeNodeOps:
@@ -63,11 +69,43 @@ class _FakeEdgeOps:
 
 
 class _FakeGraphOps:
-    def __init__(self, node_records: dict[str, FakeGraphRecord], edge_records: dict[str, FakeGraphRecord]):
+    def __init__(
+        self,
+        node_records: dict[str, FakeGraphRecord],
+        edge_records: dict[str, FakeGraphRecord],
+        episode_records: dict[str, FakeGraphRecord],
+    ):
         self.node = _FakeNodeOps(node_records)
         self.edge = _FakeEdgeOps(edge_records)
+        self.episode = _FakeNodeOps(episode_records)
+        self.batch_calls: list[dict] = []
 
-    async def add_batch(self, _graph_id: str, _episodes):
+    async def add_batch(self, graph_id: str, episodes):
+        self.batch_calls.append(
+            {
+                "graph_id": graph_id,
+                "episodes": [
+                    {
+                        "data": episode.data,
+                        "type": episode.type,
+                        "source_description": getattr(episode, "source_description", ""),
+                        "summary_language": getattr(episode, "summary_language", "original"),
+                    }
+                    for episode in episodes
+                ],
+            }
+        )
+        for index, episode in enumerate(episodes, start=1):
+            episode_uuid = f"ep-{len(self.episode._records) + index}"
+            self.episode._records[episode_uuid] = FakeGraphRecord(
+                uuid=episode_uuid,
+                name=f"{graph_id}-episode-{index}",
+                group_id=graph_id,
+                content=episode.data,
+                source="EpisodeType.message",
+                source_description=getattr(episode, "source_description", ""),
+                processed=True,
+            )
         return []
 
 
@@ -88,9 +126,21 @@ class FakeGraphitiClient:
                 source_node_uuid="node-1",
                 target_node_uuid="node-2",
                 score=0.95,
+                episodes=["ep-1"],
             )
         }
-        self.graph = _FakeGraphOps(self.node_records, self.edge_records)
+        self.episode_records = {
+            "ep-1": FakeGraphRecord(
+                uuid="ep-1",
+                name="g1-episode-1",
+                group_id="g1",
+                content="钱俶在开宝八年纳土归宋",
+                source="EpisodeType.message",
+                source_description="graphiti-zep batch import",
+                processed=True,
+            )
+        }
+        self.graph = _FakeGraphOps(self.node_records, self.edge_records, self.episode_records)
 
     async def create_group(self, group_id: str, *, name: str = "", description: str = ""):
         self.created_groups.append((group_id, name, description))
@@ -178,6 +228,13 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     data_dir.mkdir()
 
     monkeypatch.setattr(Config, "STUDIO_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(Config, "AGENT_RUNTIME", "builtin")
+    monkeypatch.setattr(Config, "PI_PROVIDER", "kimi-coding")
+    monkeypatch.setattr(Config, "PI_MODEL", "k2p5")
+    monkeypatch.setattr(Config, "PI_API_KEY", "test-pi-key")
+    monkeypatch.setattr(Config, "PI_AGENT_CLI", "pi")
+    monkeypatch.setattr(Config, "PI_SESSION_DIR", str(data_dir / "pi-sessions"))
+    monkeypatch.setattr(Config, "PI_EXTENSION_PATH", str(data_dir / "graphiti_memory.ts"))
     monkeypatch.setattr(Config, "LLM_API_KEY", "test-llm-key")
     monkeypatch.setattr(Config, "LLM_BASE_URL", "https://example.test/v1")
     monkeypatch.setattr(Config, "LLM_MODEL", "test-model")

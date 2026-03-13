@@ -15,6 +15,8 @@ import time
 import uuid
 from typing import Any
 
+from ..config import Config
+
 logger = logging.getLogger("studio.memory_adapter")
 
 
@@ -299,7 +301,14 @@ class MemoryAdapter:
 
             await self._graphiti.graph.add_batch(
                 project_id,
-                [EpisodeData(data=content, type="text")],
+                [
+                    EpisodeData(
+                        data=content,
+                        type="text",
+                        source_description=f"raw_memory:{memory_id}",
+                        summary_language=Config.GRAPHITI_SUMMARY_LANGUAGE,
+                    )
+                ],
             )
 
             now = _now_iso()

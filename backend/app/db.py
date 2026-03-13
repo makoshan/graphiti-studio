@@ -89,11 +89,16 @@ END;
 -- Single-row application settings
 CREATE TABLE IF NOT EXISTS settings (
     id                   INTEGER PRIMARY KEY CHECK (id = 1),
+    agent_runtime        TEXT NOT NULL DEFAULT 'builtin',
+    pi_provider          TEXT NOT NULL DEFAULT 'kimi-coding',
+    pi_model             TEXT NOT NULL DEFAULT 'k2p5',
+    pi_api_key           TEXT NOT NULL DEFAULT '',
     llm_api_key          TEXT NOT NULL DEFAULT '',
     llm_base_url         TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
     llm_model            TEXT NOT NULL DEFAULT 'gpt-4o-mini',
     graphiti_base_url    TEXT NOT NULL DEFAULT 'http://127.0.0.1:8000',
     graphiti_api_key     TEXT NOT NULL DEFAULT '',
+    graphiti_summary_language TEXT NOT NULL DEFAULT 'original',
     default_chunk_size   INTEGER NOT NULL DEFAULT 1000,
     default_chunk_overlap INTEGER NOT NULL DEFAULT 100,
     theme                TEXT NOT NULL DEFAULT 'system'
@@ -161,6 +166,43 @@ async def init_schema(db: Database) -> None:
     """Create all tables, indexes, and triggers if they do not already exist."""
     conn = db._ensure_conn()
     await conn.executescript(_SCHEMA_SQL)
+    cursor = await conn.execute("PRAGMA table_info(settings)")
+    columns = {row[1] for row in await cursor.fetchall()}
+    if "agent_runtime" not in columns:
+        await conn.execute(
+            """
+            ALTER TABLE settings
+            ADD COLUMN agent_runtime TEXT NOT NULL DEFAULT 'builtin'
+            """
+        )
+    if "pi_provider" not in columns:
+        await conn.execute(
+            """
+            ALTER TABLE settings
+            ADD COLUMN pi_provider TEXT NOT NULL DEFAULT 'kimi-coding'
+            """
+        )
+    if "pi_model" not in columns:
+        await conn.execute(
+            """
+            ALTER TABLE settings
+            ADD COLUMN pi_model TEXT NOT NULL DEFAULT 'k2p5'
+            """
+        )
+    if "pi_api_key" not in columns:
+        await conn.execute(
+            """
+            ALTER TABLE settings
+            ADD COLUMN pi_api_key TEXT NOT NULL DEFAULT ''
+            """
+        )
+    if "graphiti_summary_language" not in columns:
+        await conn.execute(
+            """
+            ALTER TABLE settings
+            ADD COLUMN graphiti_summary_language TEXT NOT NULL DEFAULT 'original'
+            """
+        )
     await conn.commit()
 
 

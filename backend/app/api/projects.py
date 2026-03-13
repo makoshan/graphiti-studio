@@ -76,6 +76,33 @@ class UploadResponse(BaseModel):
     total_chunks: int
 
 
+class EpisodeResponse(BaseModel):
+    uuid: str
+    name: str
+    group_id: str
+    content: str
+    source: str
+    source_description: str
+    created_at: str
+    valid_at: str
+    processed: bool = True
+
+
+class EpisodeRawMemoryResponse(BaseModel):
+    id: str
+    project_id: str
+    content: str
+    source: str
+    graph_group_id: str
+    created_at: str
+    updated_at: str
+
+
+class EpisodeDetailResponse(BaseModel):
+    episode: EpisodeResponse
+    raw_memory: Optional[EpisodeRawMemoryResponse] = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -107,6 +134,14 @@ def _row_to_project(row) -> ProjectResponse:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _memory_id_from_source_description(source_description: str) -> str | None:
+    if source_description.startswith("raw_memory:"):
+        return source_description.split(":", 1)[1] or None
+    if source_description.startswith("raw_memory/"):
+        return source_description.split("/", 1)[1] or None
+    return None
 
 
 def _mirofish_projects_dir() -> Path:
@@ -514,6 +549,58 @@ async def get_graph_data(project_id: str):
     return {"nodes": nodes, "edges": edges}
 
 
+@router.get("/{project_id}/episodes/{episode_uuid}", response_model=EpisodeDetailResponse)
+async def get_episode_detail(project_id: str, episode_uuid: str):
+    """Fetch a single episode and, when possible, the linked raw memory."""
+    db = get_db()
+    row = await db.fetchone("SELECT id FROM projects WHERE id = ?", (project_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    graphiti = get_graphiti_client()
+    try:
+        episode_obj = await graphiti.graph.episode.get(episode_uuid)
+    except Exception as exc:
+        logger.warning("Could not fetch episode %s for %s: %s", episode_uuid, project_id, exc)
+        raise HTTPException(status_code=404, detail="Episode not found") from exc
+
+    episode = vars(episode_obj) if hasattr(episode_obj, "__dict__") else {}
+    episode_group_id = episode.get("group_id") or ""
+    if episode_group_id and episode_group_id != project_id:
+        raise HTTPException(status_code=404, detail="Episode not found in project")
+
+    source_description = episode.get("source_description") or ""
+    raw_memory_id = _memory_id_from_source_description(source_description)
+    raw_memory = None
+
+    if raw_memory_id:
+        raw_memory_row = await db.fetchone(
+            """
+            SELECT id, project_id, content, source, graph_group_id, created_at, updated_at
+            FROM raw_memories
+            WHERE id = ? AND project_id = ?
+            """,
+            (raw_memory_id, project_id),
+        )
+        if raw_memory_row:
+            raw_memory_dict = dict(raw_memory_row)
+            raw_memory = EpisodeRawMemoryResponse(**raw_memory_dict)
+
+    episode_payload = EpisodeResponse(
+        uuid=episode.get("uuid") or episode.get("uuid_") or episode_uuid,
+        name=episode.get("name") or "",
+        group_id=episode_group_id,
+        content=episode.get("content") or "",
+        source=episode.get("source") or "",
+        source_description=source_description,
+        created_at=episode.get("created_at") or "",
+        valid_at=episode.get("valid_at") or "",
+        processed=bool(episode.get("processed", True)),
+    )
+
+    return EpisodeDetailResponse(episode=episode_payload, raw_memory=raw_memory)
+
+
 @router.post("/{project_id}/upload", response_model=UploadResponse)
 async def upload_files(project_id: str, files: list[UploadFile] = File(...)):
     """Accept multipart file uploads, parse each file to text, split into
@@ -563,7 +650,7 @@ async def upload_files(project_id: str, files: list[UploadFile] = File(...)):
         chunks = split_text_into_chunks(
             text,
             chunk_size=chunk_size,
-            chunk_overlap=chunk_overlap,
+            overlap=chunk_overlap,
         )
 
         for chunk in chunks:
